@@ -1,9 +1,10 @@
 import React from 'react';
 import firebase from 'firebase';
 import db from '../config'
-import { Text, View, TouchableOpacity, TextInput, Image, StyleSheet } from 'react-native';
+import { Text, View, TouchableOpacity, TextInput, Image, StyleSheet, Alert } from 'react-native';
 import * as Permissions from 'expo-permissions';
 import { BarCodeScanner } from 'expo-barcode-scanner';
+
 
 export default class TransactionScreen extends React.Component {
     constructor(){
@@ -98,24 +99,113 @@ export default class TransactionScreen extends React.Component {
 
 
     handleTransaction = async()=>{
-      var transactionMessage = null;
-      db.collection("books").doc(this.state.scannedBookId).get()
-      .then((doc)=>{
-        var book = doc.data()
-        if(book.bookAvailability){
-          this.initiateBookIssue();
-          transactionMessage='bookIssued'
-        }
-        else{
-          this.initiateBookReturn()
-          transactionMessage = 'bookReturned'
-        }
-      })
+      var transactionType = await this.checkBookEligibility()
+      if(!transactionType){
+        Alert.alert('Book does not exist in the database')
       this.setState({
-        transactionMessage:transactionMessage
+        scannedBookId:'',
+        scannedStudentId:''
       })
+      }
+      else if(transactionType==='issue'){
+        var isStudentEligible = await this.checkStudentEligibilityForIssue()
+        if(isStudentEligible){
+          this.initiateBookIssue()
+          Alert.alert('Book issued to the student')
+        }
 
+      }
+
+      else if(transactionType=='return'){
+        var isStudentEligible = await this.checkStudentEligibilityForReturn()
+        if(isStudentEligible){
+          this.initiateBookReturn()
+          Alert.alert('Book returned to the library')
+            }
+      }
+
+     
     }
+
+checkBookEligibilty = async()=>{
+  const bookRef = await db.collection("books").where("bookId","==",this.state.scannedBookId).get()
+var transactionType = ''
+if(bookRef.docs.length == 0){
+  transactionType=false
+
+}
+else{
+  bookRef.docs.map((doc)=>{
+    var book = doc.data()
+    if(book.bookAvailability){
+      transactionType = 'issue'
+    }
+    else{
+      transactionType='return'
+    }
+  })
+}
+
+return transactionType
+
+}
+
+checkStudentEligibilityForIssue = async()=>{
+  const studentRef = await db.collection("students").where("studentId","==",this.state.scannedStudentId).get()
+var isStudentEligible = ''
+if(studentRef.docs.length==0){
+  this.setState({
+    scannedBookId:'',
+    scannedStudentId:''
+
+  })
+ isStudentEligible=false
+ Alert.alert('This studentId does not exist')
+  
+}
+
+else{
+  studentRef.docs.map((doc)=>{
+var student = doc.data()
+if(student.numberOfBooksIssued<2){
+  isSTudentEligible = true
+}
+else{
+  isStudentEligible = false
+  Alert.alert('The student has already issued 2 books')
+  this.setState({
+    scannedBookId:'',
+    scannedStudentId:''
+
+  })
+}
+  })
+}
+
+return isStudentEligible
+
+}
+
+checkStudentEligibilityForReturn = async()=>{
+var transcationRef = await db.collection('transactions').where("bookId","==",this.state.scannedBookId).limit(1).get()
+var isStudentEligible = ''
+transcationRef.docs.map((doc)=>{
+  var lastBookTransaction = doc.data()
+  if(lastBookTransaction.studentId===this.state.scannedStudentId){
+  isStudenteligible = true
+  }
+  else{
+    isStudentEligible = false
+    Alert.alert('This book was not issued by the student')
+    this.setState({
+      scannedStudentId:'',
+      scannedBookId:''
+    })
+  }
+})
+return isStudentEligible
+}
+
     render() {
       const hasCameraPermissions = this.state.hasCameraPermissions;
       const scanned = this.state.scanned;
